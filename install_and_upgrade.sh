@@ -16,7 +16,7 @@ log_running() {
 }
 
 log_done() {
-  echo " ${GREEN}✓ $1${RESET}"
+  echo " ${GREEN}âœ“ $1${RESET}"
 }
 
 log_finished() {
@@ -66,11 +66,12 @@ if [ $? -ne 0 ]; then
   fi
 fi
 
-log_running "Checking for configuration settings..."
-if [ -f config/settings.yml ]; then
-  log_done "  Settings file ready!"
+log_running "Configure ATRM rule and PHP Controller based on scheduling user..."
+if [ $? -eq 0 ]; then
+   chmod +x $HOME/raspberry-noaa-v2/scripts/tools/atrm_rule_and_removal.sh
+   $HOME/raspberry-noaa-v2/scripts/tools/atrm_rule_and_removal.sh
 else
-  die "  No settings file detected - please copy config/settings.yml.sample to config/settings.yml and edit for your environment"
+  die "  Something failed with the install - please inspect the logs above"
 fi
 
 log_running "Running Ansible to install and/or update your raspberry-noaa-v2..."
@@ -105,6 +106,13 @@ fi
 log_running "Installing certbot for SSL certificates signed by the Let's Encrypt..."
 if [ $? -eq 0 ]; then
   sudo apt install certbot -y
+else
+  die "  Something failed with the install - please inspect the logs above"
+fi
+log_running "Configure PHP local time zone..."
+if [ $? -eq 0 ]; then
+   chmod +x $HOME/raspberry-noaa-v2/scripts/tools/configure_php_local_timezone.sh
+   $HOME/raspberry-noaa-v2/scripts/tools/configure_php_local_timezone.sh
 else
   die "  Something failed with the install - please inspect the logs above"
 fi
@@ -165,13 +173,9 @@ echo "--------------------------------------------------------------------------
 echo ""
 
 if [ $install_type == 'install' ]; then
-  log_running "It looks like this is a fresh install of the tooling for captures."
-  log_running "If you've never had the software tools installed previously (e.g. if you've"
-  log_running "not installed the original raspberry-noaa repo content), you likely need to"
-  log_running "restart your device. Please do this to rule out any potential issues in the"
-  log_running "software and libraries that have been installed."
-
-  log_running "Automatically rebooting your device now to finish the new install."
-  echo -e "\n\n\nAutomatically rebooting your device now to finish the new install."
+  log_running "Reloading udev rules and trigger so correct permissions fire for SDR Dongles"
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+  log_running "Running RN2 Verification Tool..."
+  ${HOME}/raspberry-noaa-v2/scripts/tools/verification_tool/verification.sh quick
   sudo reboot
 fi

@@ -1,18 +1,19 @@
 ---
-- name: Installing general dependencies
+- name: Installing general dependencies (this task can take a while when installing for the first time, your Raspberry Pi / PC isn't frozen)
   become: yes
   apt:
     update_cache: yes
     state: present
     name:
       - python3-pip
+      - wget
+      - curl
+      - build-essential
       - at
       - bc
       - cmake
       - ffmpeg
       - gmic
-      - gnuradio
-      - gr-osmosdr
       - airspy
       - hackrf
       - imagemagick
@@ -24,6 +25,7 @@
       - libopenblas-dev
       - libgfortran5
       - libjpeg-dev
+      - libtiff-dev
       - libncurses5-dev
       - libncursesw5-dev
       - libsox-fmt-mp3
@@ -31,6 +33,7 @@
       - libusb-1.0-0-dev
       - libxft-dev
       - libxft2
+      - libvolk2-dev
       - python3-setuptools
       - python3-idna
       - python3-jsonschema
@@ -57,6 +60,19 @@
       - libopencv-dev
       - python3-opencv
 
+- name: Install required wxtoimg 32-bit dependencies (arm64)
+  become: yes
+  apt:
+    update_cache: yes
+    state: present
+    name:
+      - libc6:armhf
+      - libstdc++6:armhf
+      - libasound2:armhf
+      - libx11-6:armhf
+      - libxft-dev:armhf
+      - libxft2:armhf
+  when: system_architecture == 'arm64'
 
 #This was included because, for a period of time, SatDump didn't have dependencies included in the .deb file
 
@@ -137,6 +153,19 @@
 #    name:
 #      - intel-opencl-icd
 
+#- name: Install required Python packages using pip3
+#  pip:
+#    name:
+#      - envbash==1.2.0
+#      - facebook-sdk==3.1.0
+#      - pysqlite3==0.5.1
+#    state: present
+#    executable: pip3
+
+- name: Install required Python packages using pip3 since they aren't available among the apt packages
+  command: pip3 install envbash==1.2.0 facebook-sdk==3.1.0 pysqlite3==0.5.1 --break-system-packages
+  when: raspbian_version.stdout == 'bookworm'
+
 - name: Install required Python packages using pip3
   pip:
     name:
@@ -145,8 +174,9 @@
       - pysqlite3==0.5.1
     state: present
     executable: pip3
+  when: raspbian_version.stdout == 'bullseye'
 
-- name: Installing predict on computers
+- name: Installing predict on PCs (amd64)
   become: yes
   apt:
     deb: "{{ noaa_home }}/software/predict_2.2.3-4-b2_amd64.deb"
@@ -154,7 +184,7 @@
     update_cache: no
   when: system_architecture == 'amd64'
 
-- name: Installing predict on Raspberry Pi
+- name: Installing predict on Raspberry Pi (armhf)
   become: yes
   apt:
     deb: "{{ noaa_home }}/software/predict_2.2.5+dfsg.1-1_armhf.deb"
@@ -162,6 +192,28 @@
     update_cache: no
   when: system_architecture == 'armhf'
   
+- name: Installing predict on Raspberry Pi (arm64)
+  become: yes
+  apt:
+    deb: "{{ noaa_home }}/software/predict_2.2.5+dfsg.1-1_arm64.deb"
+    state: present
+    update_cache: no
+  when: system_architecture == 'arm64'
+  
+- name: Installing SatDump
+  become: yes
+  apt:
+    deb: "{{ noaa_home }}/software/satdump_1.2.1-397f9ed6_{{ raspbian_version.stdout }}_{{ system_architecture }}.deb"
+    state: present
+    update_cache: no
+
+- name: Create WXtoImg symbolic link for ARM64 architecture
+  file:
+    src: "/home/{{ target_user }}/raspberry-noaa-v2/software/wxtoimg-armhf-2.11.2-beta.deb"
+    dest: "/home/{{ target_user }}/raspberry-noaa-v2/software/wxtoimg-arm64-2.11.2-beta.deb"
+    state: link
+  when: system_architecture == 'arm64'
+
 - name: Installing WXtoImg
   become: yes
   apt:
@@ -176,6 +228,20 @@
 #    state: present
 #    update_cache: no
 
+# OS Lite versions do not have .config, but when its created as as part of the .config/meteordemod task below 
+# The .config ownership of top directory is root:root 755 when this happens and it needs to be target_user:target_user 700
+#
+# This problem does not occur on OS Full installations
+
+- name: .config directory ownership
+  become: yes
+  file:
+    path: /home/{{ target_user }}/.config
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: 0700
+
 - name: Check if MeteorDemod is installed
   stat:
     path: /usr/local/bin/meteordemod
@@ -187,6 +253,7 @@
     repo: https://github.com/Digitelektro/MeteorDemod.git
     dest: /home/{{ target_user }}/MeteorDemod
     version: origin/master
+    depth: 1
   when: meteor_demod_installed.stat.exists is not defined or meteor_demod_installed.stat.exists == False
   ignore_errors: yes
 
@@ -214,7 +281,7 @@
   when: meteor_demod_installed.stat.exists is not defined or meteor_demod_installed.stat.exists == False
 
 - name: Make MeteorDemod
-  command: make -j4
+  command: make -j3
   args:
     chdir: /home/{{ target_user }}/MeteorDemod/build
   when: meteor_demod_installed.stat.exists is not defined or meteor_demod_installed.stat.exists == False
@@ -240,13 +307,6 @@
     path: /home/{{ target_user }}/MeteorDemod
     state: absent
   when: meteor_demod_installed.stat.exists is not defined or meteor_demod_installed.stat.exists == False
-
-- name: Installing SatDump
-  become: yes
-  apt:
-    deb: "{{ noaa_home }}/software/satdump_1.2.0-b04dc69e_{{ system_architecture }}.deb"
-    state: present
-    update_cache: no
 
 # - name: Check if libbrcmGLESV2.50 link exists
 #   stat:

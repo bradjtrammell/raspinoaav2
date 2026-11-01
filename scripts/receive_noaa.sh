@@ -87,43 +87,50 @@ case "$RECEIVER_TYPE" in
      "rtlsdr")
          samplerate="1.024e6"
          receiver="rtlsdr"
-         decimation=25
          ;;
      "airspy_mini")
          samplerate="3e6"
          receiver="airspy"
-         decimation=75
          ;;
      "airspy_r2")
          samplerate="2.5e6"
          receiver="airspy"
-         decimation=50
+         ;;
+     "airspy_hf_plus_discovery")
+         samplerate="192e3"
+         receiver="airspy"
          ;;
      "hackrf")
          samplerate="4e6"
          receiver="hackrf"
-         decimation=100
          ;;
      "sdrplay")
          samplerate="2e6"
          receiver="sdrplay"
-         decimation=50
          ;;
      "mirisdr")
          samplerate="2e6"
          receiver="mirisdr"
-         decimation=50
          ;;
      *)
-         echo "Invalid RECEIVER_TYPE value: $RECEIVER_TYPE"
+         log "Invalid RECEIVER_TYPE value: $RECEIVER_TYPE" "INFO"
          exit 1
          ;;
 esac
 
 if [[ "$receiver" == "rtlsdr" ]]; then
-  gain_option="--source_id $SDR_DEVICE_ID --gain"
+  gain_option="--gain"
+  ppm_correction="--ppm_correction"
 else
   gain_option="--general_gain"
+  FREQ_OFFSET=""
+fi
+
+if [[ "$USE_DEVICE_STRING" == "true" ]]; then
+  sdr_id_option="--source_id"
+else
+  sdr_id_option=""
+  SDR_DEVICE_ID=""
 fi
 
 if [ "$BIAS_TEE" == "-T" ]; then
@@ -145,10 +152,10 @@ if [ "$PASS_DIRECTION" == "Northbound" ]; then
   FLIP="-rotate 180"
 fi
 
-$crop_topbottom=""
+crop_topbottom=""
 if [ "$NOAA_CROP_TOPTOBOTTOM" == "true" ]; then
   log "Cropping SatDump NOAA images enabled" "INFO"
-  $crop_topbottom="--autocrop_wedges"
+  crop_topbottom="--autocrop_wedges"
 fi
 
 # pass start timestamp and sun elevation
@@ -162,7 +169,8 @@ daylight=$((SUN_ELEV > SUN_MIN_ELEV ? 1 : 0))
 #start capture
 log "Recording ${NOAA_HOME} via ${RECEIVER_TYPE} at ${freq} MHz via SatDump live pipeline" "INFO"
 audio_temporary_storage_directory="$(dirname "${RAMFS_FILE_BASE}")"
-$SATDUMP live noaa_apt $audio_temporary_storage_directory --source $receiver --samplerate $samplerate --frequency "${NOAA_FREQUENCY}e6" --satellite_number ${SAT_NUMBER} --sdrpp_noise_reduction $gain_option $GAIN $bias_tee_option $crop_topbottom --start_timestamp $PASS_START $finish_processing --timeout $CAPTURE_TIME >> $NOAA_LOG 2>&1
+log "$SATDUMP live noaa_apt $audio_temporary_storage_directory --source $receiver --samplerate $samplerate $ppm_correction ${FREQ_OFFSET} --frequency "${NOAA_FREQUENCY}e6" --satellite_number ${SAT_NUMBER} --sdrpp_noise_reduction $sdr_id_option $SDR_DEVICE_ID $gain_option $GAIN $bias_tee_option $crop_topbottom --start_timestamp $PASS_START --save_wav $finish_processing --timeout $CAPTURE_TIME" "INFO"
+$SATDUMP live noaa_apt $audio_temporary_storage_directory --source $receiver --samplerate $samplerate $ppm_correction ${FREQ_OFFSET} --frequency "${NOAA_FREQUENCY}e6" --satellite_number ${SAT_NUMBER} --sdrpp_noise_reduction $sdr_id_option $SDR_DEVICE_ID $gain_option $GAIN $bias_tee_option $crop_topbottom --start_timestamp $PASS_START --save_wav $finish_processing --timeout $CAPTURE_TIME >> $NOAA_LOG 2>&1
 rm "$audio_temporary_storage_directory/dataset.json" "$audio_temporary_storage_directory/product.cbor" >> $NOAA_LOG 2>&1
 log "Files recorded" "INFO"
 
@@ -191,7 +199,7 @@ if [ "$NOAA_DECODER" == "wxtoimg" ]; then
   if [[ "${PRODUCE_NOAA_PRISTINE}" == "true" ]]; then
     log "Producing pristine image" "INFO"
     pristine=1
-    ${IMAGE_PROC_DIR}/noaa_pristine.sh "${RAMFS_AUDIO_BASE}.wav" "${IMAGE_FILE_BASE}-pristine.png" >> $NOAA_LOG 2>&1
+    ${IMAGE_PROC_DIR}/noaa_pristine.sh "${RAMFS_AUDIO_BASE}.wav" "${IMAGE_FILE_BASE}-pristine.png" 2>&1 | grep -Ev "invalid pointer|Aborted" >> $NOAA_LOG
     ${IMAGE_PROC_DIR}/thumbnail.sh 300 "${IMAGE_FILE_BASE}-pristine.png" "${IMAGE_THUMB_BASE}-pristine.png" >> $NOAA_LOG 2>&1
     push_file_list="${push_file_list} ${IMAGE_FILE_BASE}-pristine.png"
   fi
@@ -203,7 +211,7 @@ if [ "$NOAA_DECODER" == "wxtoimg" ]; then
     histogram_text="${capture_start} @ ${SAT_MAX_ELEVATION}° Gain: ${GAIN}"
 
     log "Generating Data for Histogram" "INFO"
-    ${IMAGE_PROC_DIR}/noaa_histogram_data.sh "${RAMFS_AUDIO_BASE}.wav" "${tmp_dir}/${FILENAME_BASE}-a.png" "${tmp_dir}/${FILENAME_BASE}-b.png" >> $NOAA_LOG 2>&1
+    ${IMAGE_PROC_DIR}/noaa_histogram_data.sh "${RAMFS_AUDIO_BASE}.wav" "${tmp_dir}/${FILENAME_BASE}-a.png" "${tmp_dir}/${FILENAME_BASE}-b.png"  2>&1 | grep -Ev "invalid pointer|Aborted" >> $NOAA_LOG
 
     # Define channel names
     channels=("a" "b")
@@ -239,7 +247,7 @@ if [ "$NOAA_DECODER" == "wxtoimg" ]; then
   [[ "${NOAA_MAP_STATE_BORDER_ENABLE}" == "true" ]] && extra_map_opts+=" -S 1 -c S:${NOAA_MAP_STATE_BORDER_COLOR}" || extra_map_opts+=" -S 0"
 
   map_overlay="${NOAA_HOME}/tmp/map/${FILENAME_BASE}-map.png"
-  $WXMAP -T "${SAT_NAME}" -H "${TLE_FILE}" -p 0 ${extra_map_opts} -o "${epoch_adjusted}" "$map_overlay" >> "$NOAA_LOG" 2>&1
+  $WXMAP -T "${SAT_NAME}" -H "${TLE_FILE}" -p 0 ${extra_map_opts} -o "${epoch_adjusted}" "$map_overlay" 2>&1 | grep -Ev "invalid pointer|Aborted" >> "$NOAA_LOG"
 
   if [ "$daylight" -eq 1 ]; then
     ENHANCEMENTS="${NOAA_DAY_ENHANCEMENTS}"
@@ -253,14 +261,16 @@ if [ "$NOAA_DECODER" == "wxtoimg" ]; then
     export ENHANCEMENT=$enhancement
     log "Decoding image" "INFO"
 
-    if [$enhancement == "avi"]; then
-      ${IMAGE_PROC_DIR}/noaa_avi.sh $map_overlay "${RAMFS_AUDIO_BASE}.wav" >> $NOAA_LOG 2>&1
+    if [ $enhancement == "enhanced-IR" ]; then
+      continue
+    elif [ $enhancement == "avi" ]; then
+      ${IMAGE_PROC_DIR}/noaa_avi.sh $map_overlay "${RAMFS_AUDIO_BASE}.wav" 2>&1 | grep -Ev "invalid pointer|Aborted" >> $NOAA_LOG
     else
-      ${IMAGE_PROC_DIR}/noaa_enhancements.sh $map_overlay "${RAMFS_AUDIO_BASE}.wav" "${IMAGE_FILE_BASE}-$enhancement.jpg" $enhancement >> $NOAA_LOG 2>&1
+      ${IMAGE_PROC_DIR}/noaa_enhancements.sh $map_overlay "${RAMFS_AUDIO_BASE}.wav" "${IMAGE_FILE_BASE}-$enhancement.jpg" $enhancement 2>&1 | grep -Ev "invalid pointer|Aborted" >> $NOAA_LOG 
     fi
 
     if [ -f "${IMAGE_FILE_BASE}-$enhancement.jpg" ]; then
-      ${IMAGE_PROC_DIR}/noaa_normalize_annotate.sh "${IMAGE_FILE_BASE}-$enhancement.jpg" "${IMAGE_FILE_BASE}-$enhancement.jpg" $NOAA_IMAGE_QUALITY >> $NOAA_LOG 2>&1
+      ${IMAGE_PROC_DIR}/noaa_normalize_annotate.sh "${IMAGE_FILE_BASE}-$enhancement.jpg" "${IMAGE_FILE_BASE}-$enhancement.jpg" $NOAA_IMAGE_QUALITY 2>&1 | grep -Ev "invalid pointer|Aborted" >> $NOAA_LOG
       ${IMAGE_PROC_DIR}/thumbnail.sh 300 "${IMAGE_FILE_BASE}-$enhancement.jpg" "${IMAGE_THUMB_BASE}-$enhancement.jpg" >> $NOAA_LOG 2>&1
       push_file_list="${push_file_list} ${IMAGE_FILE_BASE}-$enhancement.jpg"
     fi
@@ -356,16 +366,16 @@ if [ -n "$(find /srv/images -maxdepth 1 -type f -name "$(basename "$IMAGE_FILE_B
     log "Producing polar graph of azimuth and elevation for pass" "INFO"
     polar_az_el=1
     epoch_end=$((EPOCH_START + CAPTURE_TIME))
-    ${IMAGE_PROC_DIR}/polar_plot.py "${SAT_NAME}" \
-                                    "${TLE_FILE}" \
-                                    $EPOCH_START \
-                                    $epoch_end \
-                                    $LAT \
-                                    $LON \
-                                    $SAT_MIN_ELEV \
-                                    $PASS_DIRECTION \
-                                    "${IMAGE_FILE_BASE}-polar-azel.jpg" \
-                                    "azel" >> $NOAA_LOG 2>&1
+    python3 ${IMAGE_PROC_DIR}/polar_plot.py "${SAT_NAME}" \
+                                            "${TLE_FILE}" \
+                                            $EPOCH_START \
+                                            $epoch_end \
+                                            $LAT \
+                                            $LON \
+                                            $SAT_MIN_ELEV \
+                                            $PASS_DIRECTION \
+                                            "${IMAGE_FILE_BASE}-polar-azel.jpg" \
+                                            "azel" >> $NOAA_LOG 2>&1
     ${IMAGE_PROC_DIR}/thumbnail.sh 300 "${IMAGE_FILE_BASE}-polar-azel.jpg" "${IMAGE_THUMB_BASE}-polar-azel.jpg" >> $NOAA_LOG 2>&1
   fi
 
@@ -374,16 +384,16 @@ if [ -n "$(find /srv/images -maxdepth 1 -type f -name "$(basename "$IMAGE_FILE_B
     log "Producing polar graph of direction for pass" "INFO"
     polar_direction=1
     epoch_end=$((EPOCH_START + CAPTURE_TIME))
-    ${IMAGE_PROC_DIR}/polar_plot.py "${SAT_NAME}" \
-                                    "${TLE_FILE}" \
-                                    $EPOCH_START \
-                                    $epoch_end \
-                                    $LAT \
-                                    $LON \
-                                    $SAT_MIN_ELEV \
-                                    $PASS_DIRECTION \
-                                    "${IMAGE_FILE_BASE}-polar-direction.png" \
-                                    "direction" >> $NOAA_LOG 2>&1
+    python3 ${IMAGE_PROC_DIR}/polar_plot.py "${SAT_NAME}" \
+                                            "${TLE_FILE}" \
+                                            $EPOCH_START \
+                                            $epoch_end \
+                                            $LAT \
+                                            $LON \
+                                            $SAT_MIN_ELEV \
+                                            $PASS_DIRECTION \
+                                            "${IMAGE_FILE_BASE}-polar-direction.png" \
+                                            "direction" >> $NOAA_LOG 2>&1
     ${IMAGE_PROC_DIR}/thumbnail.sh 300 "${IMAGE_FILE_BASE}-polar-direction.png" "${IMAGE_THUMB_BASE}-polar-direction.png" >> $NOAA_LOG 2>&1
   fi
 
@@ -446,22 +456,31 @@ if [ -n "$(find /srv/images -maxdepth 1 -type f -name "$(basename "$IMAGE_FILE_B
     pass_id=$($SQLITE3 $DB_FILE "SELECT id FROM decoded_passes ORDER BY id DESC LIMIT 1;")
     ${PUSH_PROC_DIR}/push_slack.sh "${push_annotation} <${SLACK_LINK}?pass_id=${pass_id}>\n" $push_file_list >> $NOAA_LOG 2>&1
   fi
+
   # handle Twitter pushing if enabled
   if [ "${ENABLE_TWITTER_PUSH}" == "true" ]; then
     log "Pushing image enhancements to Twitter" "INFO"
     ${PUSH_PROC_DIR}/push_twitter.sh "${push_annotation}" $push_file_list >> $NOAA_LOG 2>&1
   fi
+
+  # handle Bluesky pushing if enabled
+  if [ "${ENABLE_BLUESKY_PUSH}" == "true" ]; then
+    log "Pushing image enhancements to Bluesky" "INFO"
+    python3 ${PUSH_PROC_DIR}/push_bluesky.py "${push_annotation}" ${push_file_list} >> $NOAA_LOG 2>&1
+  fi
+
   # handle Mastodon pushing if enabled
   if [ "${ENABLE_MASTODON_PUSH}" == "true" ]; then
     log "Pushing image enhancements to Mastodon" "INFO"
-    echo -e "${PUSH_PROC_DIR}/push_mastodon.py \"${push_annotation}\" ${push_file_list}"
-    ${PUSH_PROC_DIR}/push_mastodon.py "${push_annotation}" ${push_file_list} >> $NOAA_LOG 2>&1
+    python3 ${PUSH_PROC_DIR}/push_mastodon.py "${push_annotation}" ${push_file_list} >> $NOAA_LOG 2>&1
   fi
+
   # handle Facebook pushing if enabled
   if [ "${ENABLE_FACEBOOK_PUSH}" == "true" ]; then
     log "Pushing image enhancements to Facebook" "INFO"
-    ${PUSH_PROC_DIR}/push_facebook.py "${push_annotation}" "${push_file_list}" >> $NOAA_LOG 2>&1
+    python3 ${PUSH_PROC_DIR}/push_facebook.py "${push_annotation}" "${push_file_list}" >> $NOAA_LOG 2>&1
   fi
+
   # handle Instagram pushing if enabled
   if [ "${ENABLE_INSTAGRAM_PUSH}" == "true" ]; then
     if [[ "$daylight" -eq 1 ]]; then
@@ -470,14 +489,16 @@ if [ -n "$(find /srv/images -maxdepth 1 -type f -name "$(basename "$IMAGE_FILE_B
       $CONVERT +append "${IMAGE_FILE_BASE}-MCIR.jpg" "${IMAGE_FILE_BASE}-MCIR-precip.jpg" "${IMAGE_FILE_BASE}-instagram.jpg"
     fi
     log "Pushing image enhancements to Instagram" "INFO"
-    ${PUSH_PROC_DIR}/push_instagram.py "${push_annotation}" $(sed 's|/srv/images/||' <<< "${IMAGE_FILE_BASE}-instagram.jpg") ${WEB_SERVER_NAME} >> $NOAA_LOG 2>&1
+    python3 ${PUSH_PROC_DIR}/push_instagram.py "${push_annotation}" $(sed 's|/srv/images/||' <<< "${IMAGE_FILE_BASE}-instagram.jpg") ${WEB_SERVER_NAME} >> $NOAA_LOG 2>&1
     rm "${IMAGE_FILE_BASE}-instagram.jpg"
   fi
+
   # handle Matrix pushing if enabled
   if [ "${ENABLE_MATRIX_PUSH}" == "true" ]; then
     log "Pushing image enhancements to Matrix" "INFO"
     ${PUSH_PROC_DIR}/push_matrix.sh "${push_annotation}" $push_file_list >> $NOAA_LOG 2>&1
   fi
+
   if [ "${ENABLE_EMAIL_PUSH}" == "true" ]; then
     IFS=' ' read -ra image_file_array <<< "$push_file_list"
     for i in "${image_file_array[@]}"; do
@@ -485,6 +506,7 @@ if [ -n "$(find /srv/images -maxdepth 1 -type f -name "$(basename "$IMAGE_FILE_B
       ${PUSH_PROC_DIR}/push_email.sh "${EMAIL_PUSH_ADDRESS}" "$i" "${push_annotation}" >> $NOAA_LOG 2>&1
     done
   fi
+
   if [ "${ENABLE_DISCORD_PUSH}" == "true" ]; then
     IFS=' ' read -ra image_file_array <<< "$push_file_list"
     for i in "${image_file_array[@]}"; do

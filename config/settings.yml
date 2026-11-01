@@ -8,7 +8,7 @@ altitude: 0.0
 
 #Website language settings
 #   lang_setting: see the 'webpanel/App/Lang' folder for available
-#                 languages (2-letter filename - e.g. ar, bg, de, en, es, nl, sr, ru, it, hu, gr, lt)
+#                 languages (2-letter filename - e.g. ar, bg, de, en, es, nl, sr, ru, it, hu, gr, lt, kr, ro)
 lang_setting: en
 
 # ntp configurations
@@ -17,7 +17,7 @@ lang_setting: en
 ntp_server: ''
 
 # receiver settings
-#   receiver_type - the receiver type which program uses ('rtlsdr', 'airspy_mini', 'airspy_r2' or 'hackrf' or 'sdrplay' or 'mirisdr')
+#   receiver_type - the receiver type which program uses ('rtlsdr', 'airspy_mini', 'airspy_r2', 'airspy_hf_plus_discovery', 'hackrf', 'sdrplay' or 'mirisdr')
 #   noaa_decoder - which receiver method to use (either 'wxtoimg' or 'satdump')
 #   meteor_decoder - which receiver method to use (either 'meteordemod' or 'satdump')
 receiver_type: 'rtlsdr'
@@ -44,12 +44,16 @@ test_freq_offset: 0
 #   <satellite_name>_sun_min_elevation - threshold for sun elevation for specific satellite captures
 #   <satellite_name>_sat_min_elevation - threshold for sat elevation for specific satellite captures
 #   <satellite_name>_memory_threshold - for METEOR satellite, minimum free memory (MB) required to store pass in RAM
+#   select_best_overlapping_passes - whether to select the best overlapping pass when multiple passes are available, or let user manually delete the passes
+#   select_meteor_pass_over_noaa - whether to select Meteor passes over NOAA when both are occuring at the same time
+#   use_device_string - whether to use the device string scheduling passes when you have multiple SDR devices connected of the same type (most users should leave it to "false")
 
 noaa_memory_threshold: 50
 meteor_m2_memory_threshold: 10
 
 select_best_overlapping_passes: true
 select_meteor_pass_over_noaa: true
+use_device_string: false
 
 noaa_15_schedule: true
 noaa_15_sdr_device_id: 0
@@ -113,8 +117,8 @@ delete_older_than_n: 30
 
 # whether audio files should be deleted after images are created
 # if you choose to keep files, they will be automatically deleted after set number of days in delete_files_older_than_days (default is 3 days)
-delete_noaa_audio: true
-delete_meteor_audio: true
+delete_noaa_audio: false
+delete_meteor_audio: false
 delete_files_older_than_days: 3
 
 # processing settings
@@ -182,13 +186,13 @@ ground_station_location: ''
 antenna_information: ''
 show_sun_elevation: true
 show_pass_direction: true
-produce_spectrogram: true
+produce_spectrogram: false    #NOTE: the spectrogram option here is available for NOAA only, and the spectrogrma produced is from demodulated audio, not IQ baseband file
 
 noaa_crop_telemetry: false
 produce_noaa_pristine_image: false
 produce_noaa_pristine_histogram: false
-noaa_daytime_enhancements: 'MSA MSA-precip MCIR MCIR-precip HVC-precip HVCT-precip HVC HVCT ZA therm sea CC HE HF MD BD MB JF JJ LC TA WV NO histeq'
-noaa_nighttime_enhancements: 'MCIR MCIR-precip HVCT ZA therm NO TA sea histeq'
+noaa_daytime_enhancements: 'MSA MSA-precip MCIR MCIR-precip HVC-precip HVCT-precip HVC HVCT ZA therm sea CC HE HF MD BD MB JF JJ LC TA WV NO histeq enhanced-IR'
+noaa_nighttime_enhancements: 'MCIR MCIR-precip HVCT ZA therm NO TA sea histeq enhanced-IR'
 noaa_crop_toptobottom: false
 noaa_interpolate: false
 noaa_jpg_image_quality: 90
@@ -204,6 +208,8 @@ noaa_map_state_border_enable: true
 noaa_map_state_border_color: "0xffff00"
 wxtoimg_map_offset: 10.5                    #Change this value only if you see map offsets from the ground on WXtoImg NOAA images
 
+meteor_daytime_enhancements: '221 321 124 MSA MCIR MCIR-precip HVC HVCT ZA therm sea CC HE HF MD BD MB JF JJ LC TA WV NO enhanced-IR'
+meteor_nighttime_enhancements: '654 456 MCIR MCIR-precip HVC HVCT ZA therm sea CC HE HF MD BD MB JF JJ LC TA WV NO enhanced-IR'
 flip_meteor_image: true
 meteor_jpg_image_quality: 90
 meteor_draw_map_overlay: true
@@ -255,6 +261,12 @@ log_level: DEBUG
 # the processing and space requirements
 enable_satvis: true
 
+
+# whether to enable the "Coronal mass ejection activity" display
+# in the passes view - note that the GIFs can be ~70 MiB and not cached
+# thus they slow down the page & can lead to quite big data usage
+enable_coronal: false
+
 # whether to enable the image video in the passes view - note that this
 # is by default disabled on "extra-small" devices such as phones due
 # to the processing and space requirements
@@ -300,6 +312,7 @@ pushover_apitoken: ''
 pushover_user: ''
 pushover_prio: 0
 enable_twitter_push: false
+enable_bluesky_push: false
 enable_mastodon_push: false
 enable_facebook_push: false
 enable_instagram_push: false
